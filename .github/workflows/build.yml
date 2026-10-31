@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   macos:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -66,18 +66,3 @@ jobs:
           git add .
           git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" commit -q -m "macOS build of ${GITHUB_SHA}"
           git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" builds
-
-  windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Configure
-        run: cmake -B build -G "Visual Studio 17 2022" -A x64
-      - name: Build
-        run: cmake --build build --config Release --target Driftfield_VST3 Driftfield_Standalone --parallel
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Driftfield-Windows
-          path: |
-            build/Driftfield_artefacts/Release/VST3/
-            build/Driftfield_artefacts/Release/Standalone/
