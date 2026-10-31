@@ -1,0 +1,83 @@
+name: Build Driftfield
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (VST3 + AU + Standalone, universal)
+        run: cmake --build build --config Release --target Driftfield_VST3 Driftfield_AU Driftfield_Standalone --parallel 4
+
+      - name: Ad-hoc sign
+        run: |
+          R=build/Driftfield_artefacts/Release
+          codesign --force --deep -s - $R/VST3/Driftfield.vst3
+          codesign --force --deep -s - $R/AU/Driftfield.component
+          codesign --force --deep -s - $R/Standalone/Driftfield.app
+
+      - name: Validate AU (auval)
+        continue-on-error: true
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components out
+          cp -R build/Driftfield_artefacts/Release/AU/Driftfield.component ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          sleep 3
+          auval -v aufx Drft Dfau 2>&1 | tee out/auval.log
+
+      - name: Validate VST3 (pluginval)
+        continue-on-error: true
+        run: |
+          mkdir -p out
+          curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+          unzip -q pluginval.zip
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --skip-gui-tests \
+            --validate build/Driftfield_artefacts/Release/VST3/Driftfield.vst3 2>&1 | tee out/pluginval.log
+
+      - name: Zip (preserva i bundle)
+        run: |
+          mkdir -p out
+          R=build/Driftfield_artefacts/Release
+          ditto -c -k --keepParent $R/VST3/Driftfield.vst3 out/Driftfield-VST3-mac.zip
+          ditto -c -k --keepParent $R/AU/Driftfield.component out/Driftfield-AU-mac.zip
+          ditto -c -k --keepParent $R/Standalone/Driftfield.app out/Driftfield-Standalone-mac.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Driftfield-macOS
+          path: out/
+
+      - name: Publish to 'builds' branch
+        run: |
+          cd out
+          echo "${GITHUB_SHA}" > COMMIT.txt
+          git init -q -b builds
+          git add .
+          git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" commit -q -m "macOS build of ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" builds
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+      - name: Build
+        run: cmake --build build --config Release --target Driftfield_VST3 Driftfield_Standalone --parallel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Driftfield-Windows
+          path: |
+            build/Driftfield_artefacts/Release/VST3/
+            build/Driftfield_artefacts/Release/Standalone/
